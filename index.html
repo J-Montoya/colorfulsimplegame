@@ -5,23 +5,37 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Esquivador Espacial</title>
     <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
         body {
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
             background: linear-gradient(to bottom, #2c3e50, #4ca1af);
             margin: 0;
+            padding: 0;
             font-family: Arial, sans-serif;
             color: white;
+            overflow: hidden;
+            touch-action: manipulation;
         }
         #gameContainer {
             position: relative;
+            width: 100%;
+            max-width: 700px;
+            margin: 0 auto;
         }
         canvas {
+            display: block;
+            width: 100%;
+            height: auto;
             border-radius: 15px;
             box-shadow: 0px 0px 30px rgba(0, 0, 0, 0.7);
+            touch-action: none;
         }
         #score {
             position: absolute;
@@ -40,36 +54,174 @@
             color: rgba(255, 255, 255, 0.5);
             text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
         }
+        #jumpButton {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80px;
+            height: 80px;
+            background: rgba(0, 255, 136, 0.3);
+            border: 3px solid rgba(0, 255, 136, 0.7);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            z-index: 10;
+            user-select: none;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.5);
+        }
+        #jumpButton:active {
+            background: rgba(0, 255, 136, 0.5);
+        }
+        #restartButton {
+            position: fixed;
+            bottom: 40px;
+            right: 40px;
+            width: 60px;
+            height: 60px;
+            background: rgba(255, 183, 0, 0.3);
+            border: 3px solid rgba(255, 183, 0, 0.7);
+            border-radius: 50%;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 10;
+            user-select: none;
+            box-shadow: 0 0 15px rgba(255, 183, 0, 0.5);
+        }
+        #restartButton:active {
+            background: rgba(255, 183, 0, 0.5);
+        }
+        #gameOverScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(12, 12, 44, 0.9);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 5;
+            border-radius: 15px;
+        }
+        #gameOverTitle {
+            font-size: 36px;
+            font-weight: bold;
+            color: #00ff88;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }
+        #finalScore {
+            font-size: 24px;
+            color: white;
+            margin-bottom: 30px;
+        }
+        @media (max-width: 480px) {
+            #score {
+                font-size: 20px;
+                top: 10px;
+                right: 10px;
+            }
+            #attribution {
+                font-size: 10px;
+                top: 2px;
+                right: 14px;
+            }
+            #jumpButton {
+                width: 70px;
+                height: 70px;
+                bottom: 30px;
+            }
+            #restartButton {
+                width: 50px;
+                height: 50px;
+                right: 30px;
+                bottom: 30px;
+            }
+            #gameOverTitle {
+                font-size: 28px;
+            }
+            #finalScore {
+                font-size: 20px;
+            }
+        }
     </style>
 </head>
 <body>
     <div id="gameContainer">
-        <canvas id="gameCanvas" width="700" height="450"></canvas>
+        <canvas id="gameCanvas"></canvas>
         <div id="score">Puntos: 0</div>
         <div id="attribution">Jonathan Montoya</div>
+        <div id="gameOverScreen">
+            <div id="gameOverTitle">¡Perdiste! :(</div>
+            <div id="finalScore">Puntos totales: 0</div>
+        </div>
     </div>
+    <div id="jumpButton">SALTAR</div>
+    <div id="restartButton">↻</div>
+    
     <script>
+        // Configuración de sonidos
         const sounds = {
             transform: new Audio('https://assets.mixkit.co/active_storage/sfx/2019/transformation.mp3'),
             powerup: new Audio('https://assets.mixkit.co/active_storage/sfx/2020/powerup.mp3'),
             thunder: new Audio('https://assets.mixkit.co/active_storage/sfx/2018/thunder.mp3')
         };
 
+        // Referencias a elementos del DOM
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
         const scoreElement = document.getElementById("score");
-
+        const gameOverScreen = document.getElementById("gameOverScreen");
+        const finalScoreElement = document.getElementById("finalScore");
+        const jumpButton = document.getElementById("jumpButton");
+        const restartButton = document.getElementById("restartButton");
+        
+        // Ajustar el tamaño del canvas al dispositivo
+        function resizeCanvas() {
+            const container = document.getElementById("gameContainer");
+            const containerWidth = container.clientWidth;
+            
+            // Mantener la relación de aspecto 700:450
+            const aspectRatio = 700/450;
+            const width = containerWidth;
+            const height = width / aspectRatio;
+            
+            canvas.width = width;
+            canvas.height = height;
+            
+            // Reiniciar el juego si está activo
+            if (!gameState.gameOver && gameState.initialized) {
+                resetGame();
+            }
+        }
+        
+        // Llamar a resize al cargar y cuando cambie el tamaño de la ventana
+        window.addEventListener("load", resizeCanvas);
+        window.addEventListener("resize", resizeCanvas);
+        
+        // Niveles de aura
         const auraLevels = [
             { score: 10, color: 'rgba(255, 215, 0, 0.3)', radius: 10, particles: 8, name: 'Ssj' },
             { score: 15, color: 'rgba(255, 215, 0, 0.4)', radius: 15, particles: 12, name: 'Ssj2' },
             { score: 20, color: 'rgba(255, 215, 0, 0.5)', radius: 20, particles: 16, name: 'Ssj3' },
             { score: 25, color: 'rgba(0, 191, 255, 0.5)', radius: 25, particles: 20, name: 'Ssj Blue' },
             { score: 30, color: 'rgba(255, 255, 255, 0.7)', radius: 30, particles: 24, name: 'UI', 
-      special: true, // Propiedad especial para Ultra Instinct
-      heatEffect: true // Efecto de calor
-    }
+                special: true, // Propiedad especial para Ultra Instinct
+                heatEffect: true // Efecto de calor
+            }
         ];
 
+        // Función para dibujar el aura del jugador
         function drawPlayerAura() {
             // Encontrar el nivel de aura actual basado en el puntaje
             const auraLevel = auraLevels.filter(level => gameState.score >= level.score).pop();
@@ -79,6 +231,9 @@
                     player.currentAuraLevel = auraLevels.indexOf(auraLevel);
                     // Mostrar mensaje de transformación
                     showTransformationMessage(auraLevel.name);
+                    
+                    // Reproducir sonido de transformación
+                    sounds.transform.play().catch(e => console.log("Error reproduciendo sonido:", e));
                 }
 
                 ctx.save();
@@ -131,64 +286,80 @@
             }
         }
 
+        // Función para mostrar mensajes de transformación
         function showTransformationMessage(transformationName) {
-    if (gameState.transformationActive) return; // Evita mostrar el mensaje repetidamente
+            if (gameState.transformationActive) return; // Evita mostrar el mensaje repetidamente
 
-    gameState.transformationActive = true; // Marca que el mensaje ya se mostró
+            gameState.transformationActive = true; // Marca que el mensaje ya se mostró
 
-    const messageBox = document.createElement("div");
-    messageBox.innerText = transformationName + "!";
-    messageBox.style.position = "absolute";
-    messageBox.style.top = "50%";
-    messageBox.style.left = "50%";
-    messageBox.style.transform = "translate(-50%, -50%)";
-    messageBox.style.background = "rgba(0, 0, 0, 0.8)";
-    messageBox.style.color = "yellow";
-    messageBox.style.padding = "20px";
-    messageBox.style.fontSize = "24px";
-    messageBox.style.border = "2px solid gold";
-    messageBox.style.zIndex = "1000";
-    messageBox.style.textAlign = "center";
-    document.body.appendChild(messageBox);
+            const messageBox = document.createElement("div");
+            messageBox.innerText = transformationName + "!";
+            messageBox.style.position = "absolute";
+            messageBox.style.top = "50%";
+            messageBox.style.left = "50%";
+            messageBox.style.transform = "translate(-50%, -50%)";
+            messageBox.style.background = "rgba(0, 0, 0, 0.8)";
+            messageBox.style.color = "yellow";
+            messageBox.style.padding = "20px";
+            messageBox.style.fontSize = "24px";
+            messageBox.style.border = "2px solid gold";
+            messageBox.style.zIndex = "1000";
+            messageBox.style.textAlign = "center";
+            messageBox.style.borderRadius = "10px";
+            document.getElementById("gameContainer").appendChild(messageBox);
 
-    setTimeout(() => {
-        document.body.removeChild(messageBox);
-        gameState.transformationActive = false; // Permite nuevas transformaciones
-    }, 2000); // Desaparece después de 2 segundos
-}
+            setTimeout(() => {
+                document.getElementById("gameContainer").removeChild(messageBox);
+                gameState.transformationActive = false; // Permite nuevas transformaciones
+            }, 2000); // Desaparece después de 2 segundos
+        }
 
+        // Variables para escalar las dimensiones según el tamaño del canvas
+        function getScaledValue(value) {
+            const baseWidth = 700; // Ancho base del diseño original
+            return (value / baseWidth) * canvas.width;
+        }
         
+        // Definir jugador
         let player = {
-            x: 60,
+            x: getScaledValue(60),
             y: canvas.height / 2,
-            width: 35,
-            height: 35,
+            width: getScaledValue(35),
+            height: getScaledValue(35),
             color: "#ffb700",
-            speed: 5,
+            speed: getScaledValue(5),
             velocityY: 0,
             auraAngle: 0,  // Para la rotación del aura
             currentAuraLevel: -1  // Nivel actual del aura
         };
         
+        // Estado del juego
         let gameState = {
             obstacles: [],
             score: 0,
-            gameSpeed: 6,
+            gameSpeed: getScaledValue(6),
             obstacleInterval: 1500,
             gameOver: false,
-            gravity: 0.7,
-            jump: -13,
-            starSpeedMultiplier: 1 // Nuevo multiplicador para la velocidad de las estrellas
+            gravity: getScaledValue(0.7),
+            jump: getScaledValue(-13),
+            starSpeedMultiplier: 1, // Multiplicador para la velocidad de las estrellas
+            transformationActive: false,
+            initialized: false // Indicar si el juego ya se ha inicializado
         };
 
-        let stars = Array(150).fill().map(() => ({
-            x: Math.random() * canvas.width,
-            y: Math.random() * canvas.height,
-            size: Math.random() * 2.5 + 0.5,
-            baseSpeed: Math.random() * 3 + 1, // Velocidad base de cada estrella
-            color: Math.random() > 0.7 ? '#ffeaa7' : Math.random() > 0.5 ? '#81ecec' : '#ffffff'
-        }));
+        // Estrellas para el fondo
+        let stars = [];
+        function initializeStars() {
+            stars = Array(150).fill().map(() => ({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                size: Math.random() * 2.5 + 0.5,
+                baseSpeed: Math.random() * 3 + 1, // Velocidad base de cada estrella
+                color: Math.random() > 0.7 ? '#ffeaa7' : Math.random() > 0.5 ? '#81ecec' : '#ffffff'
+            }));
+        }
 
+        // Partículas
         let particles = [];
 
         function createParticles(x, y, color) {
@@ -263,14 +434,33 @@
         function drawPlayer() {
             drawPlayerAura(); // Dibujar el aura antes que el jugador
 
-
             ctx.fillStyle = player.color;
             ctx.beginPath();
-            ctx.roundRect(player.x, player.y, player.width, player.height, 8);
+            roundRect(ctx, player.x, player.y, player.width, player.height, 8);
             ctx.fill();
             
             ctx.fillStyle = "#ffee60";
             ctx.fillRect(player.x + player.width - 10, player.y + 8, 6, player.height - 16);
+        }
+        
+        // Función para dibujar rectángulos redondeados (para navegadores que no soporten roundRect)
+        function roundRect(ctx, x, y, width, height, radius) {
+            if (ctx.roundRect) {
+                ctx.roundRect(x, y, width, height, radius);
+                return;
+            }
+            
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            ctx.lineTo(x + radius, y + height);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
         }
         
         function drawObstacles() {
@@ -284,7 +474,7 @@
                 ctx.fillStyle = gradient;
                 
                 ctx.beginPath();
-                ctx.roundRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height, 8);
+                roundRect(ctx, obstacle.x, obstacle.y, obstacle.width, obstacle.height, 8);
                 ctx.fill();
                 
                 ctx.shadowBlur = 0;
@@ -300,20 +490,20 @@
             
             const patterns = [
                 () => {
-                    const gap = 120;
-                    const gapPosition = Math.random() * (canvas.height - gap - 100) + 50;
+                    const gap = getScaledValue(120);
+                    const gapPosition = Math.random() * (canvas.height - gap - getScaledValue(100)) + getScaledValue(50);
                     return [
                         {
                             x: canvas.width,
                             y: 0,
-                            width: 40,
+                            width: getScaledValue(40),
                             height: gapPosition,
                             passed: false
                         },
                         {
                             x: canvas.width,
                             y: gapPosition + gap,
-                            width: 40,
+                            width: getScaledValue(40),
                             height: canvas.height - (gapPosition + gap),
                             passed: false
                         }
@@ -324,10 +514,10 @@
                     const steps = 3;
                     for (let i = 0; i < steps; i++) {
                         obstacles.push({
-                            x: canvas.width + (i * 80),
-                            y: canvas.height - (100 + i * 60),
-                            width: 40,
-                            height: 100 + i * 60,
+                            x: canvas.width + (i * getScaledValue(80)),
+                            y: canvas.height - (getScaledValue(100) + i * getScaledValue(60)),
+                            width: getScaledValue(40),
+                            height: getScaledValue(100) + i * getScaledValue(60),
                             passed: false
                         });
                     }
@@ -338,10 +528,10 @@
                     const count = 3;
                     for (let i = 0; i < count; i++) {
                         obstacles.push({
-                            x: canvas.width + (i * 150),
-                            y: canvas.height - 80,
-                            width: 40,
-                            height: 80,
+                            x: canvas.width + (i * getScaledValue(150)),
+                            y: canvas.height - getScaledValue(80),
+                            width: getScaledValue(40),
+                            height: getScaledValue(80),
                             passed: false
                         });
                     }
@@ -363,10 +553,15 @@
                     obstacle.passed = true;
                     scoreElement.textContent = `Puntos: ${gameState.score}`;
                     
+                    // Reproducir sonido de punto
+                    if (gameState.score % 5 === 0) {
+                        sounds.powerup.play().catch(e => console.log("Error reproduciendo sonido:", e));
+                    }
+                    
                     if (gameState.score % 2 === 0) {
-                        gameState.gameSpeed += 0.4;
+                        gameState.gameSpeed += getScaledValue(0.4);
                         // Aumentar la velocidad de las estrellas proporcionalmente
-                        gameState.starSpeedMultiplier = 1 + (gameState.gameSpeed - 6) / 6;
+                        gameState.starSpeedMultiplier = 1 + (gameState.gameSpeed - getScaledValue(6)) / getScaledValue(6);
                         
                         if (gameState.obstacleInterval > 800) {
                             gameState.obstacleInterval -= 50;
@@ -388,6 +583,9 @@
                 if (collision) {
                     createParticles(player.x + player.width/2, player.y + player.height/2, '255, 254, 88');
                     createParticles(obstacle.x + obstacle.width/2, obstacle.y + obstacle.height/2, '0, 255, 136');
+                    
+                    // Reproducir sonido de colisión
+                    sounds.thunder.play().catch(e => console.log("Error reproduciendo sonido:", e));
                 }
                 
                 return collision;
@@ -410,19 +608,11 @@
         
         function gameLoop() {
             if (gameState.gameOver) {
-                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-                gradient.addColorStop(0, 'rgba(12, 12, 44, 0.9)');
-                gradient.addColorStop(1, 'rgba(26, 26, 79, 0.9)');
-                ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                
-                ctx.fillStyle = "#00ff88";
-                ctx.font = "bold 40px Arial";
-                ctx.textAlign = "center";
-                ctx.fillText("¡Perdiste! :(", canvas.width/2, canvas.height/2 - 40);
-                
-                ctx.font = "28px Arial";
-                ctx.fillText(`Puntos totales: ${gameState.score}`, canvas.width/2, canvas.height/2 + 20);
+                // Mostrar pantalla de game over
+                gameOverScreen.style.display = "flex";
+                finalScoreElement.textContent = `Puntos totales: ${gameState.score}`;
+                restartButton.style.display = "flex";
+                jumpButton.style.display = "none";
                 
                 updateParticles();
                 drawParticles();
@@ -445,27 +635,61 @@
         }
         
         function resetGame() {
-            player.y = canvas.height / 2;
-            player.velocityY = 0;
-            player.currentAuraLevel = -1;
-            particles = [];
+            gameState.initialized = true;
+            
+            // Reiniciar jugador
+            player = {
+                x: getScaledValue(60),
+                y: canvas.height / 2,
+                width: getScaledValue(35),
+                height: getScaledValue(35),
+                color: "#ffb700",
+                speed: getScaledValue(5),
+                velocityY: 0,
+                auraAngle: 0,
+                currentAuraLevel: -1
+            };
+            
+            // Reiniciar estado del juego
             gameState = {
                 obstacles: [],
                 score: 0,
-                gameSpeed: 6,
+                gameSpeed: getScaledValue(6),
                 obstacleInterval: 1500,
                 gameOver: false,
-                gravity: 0.7,
-                jump: -13,
-                starSpeedMultiplier: 1 // Reiniciar el multiplicador de velocidad de las estrellas
+                gravity: getScaledValue(0.7),
+                jump: getScaledValue(-13),
+                starSpeedMultiplier: 1,
+                transformationActive: false,
+                initialized: true
             };
+            
+            // Reiniciar estrellas
+            initializeStars();
+            
+            // Reiniciar partículas
+            particles = [];
+            
+            // Reiniciar UI
             scoreElement.textContent = "Puntos: 0";
+            gameOverScreen.style.display = "none";
+            restartButton.style.display = "none";
+            jumpButton.style.display = "flex";
+            
+            // Reiniciar intervalo de obstáculos
+            clearInterval(obstacleInterval);
+            obstacleInterval = setInterval(createObstacle, gameState.obstacleInterval);
+            
+            // Reiniciar bucle de juego
             gameLoop();
         }
-        
+
+        // Controles para desktop
         document.addEventListener("keydown", event => {
-            if (event.key === "ArrowUp") {
-                player.velocityY = gameState.jump;
+            if (event.key === "ArrowUp" || event.key === " ") {
+                if (!gameState.gameOver) {
+                    player.velocityY = gameState.jump;
+                }
             } else if (event.key === "r" || event.key === "R") {
                 if (gameState.gameOver) {
                     resetGame();
@@ -473,8 +697,50 @@
             }
         });
         
-        setInterval(createObstacle, gameState.obstacleInterval);
-        gameLoop();
+        // Controles táctiles
+        jumpButton.addEventListener("touchstart", function(e) {
+            e.preventDefault();
+            if (!gameState.gameOver) {
+                player.velocityY = gameState.jump;
+            }
+        });
+        
+        // También permitir clic normal para pruebas en desktop
+        jumpButton.addEventListener("click", function(e) {
+            if (!gameState.gameOver) {
+                player.velocityY = gameState.jump;
+            }
+        });
+        
+        restartButton.addEventListener("touchstart", function(e) {
+            e.preventDefault();
+            if (gameState.gameOver) {
+                resetGame();
+            }
+        });
+        
+        restartButton.addEventListener("click", function(e) {
+            if (gameState.gameOver) {
+                resetGame();
+            }
+        });
+        
+        // También permitir tocar en cualquier parte de la pantalla para saltar
+        canvas.addEventListener("touchstart", function(e) {
+            e.preventDefault();
+            if (!gameState.gameOver) {
+                player.velocityY = gameState.jump;
+            }
+        });
+        
+        // Inicializar estrellas
+        initializeStars();
+        
+        // Configurar el intervalo para crear obstáculos
+        let obstacleInterval = setInterval(createObstacle, gameState.obstacleInterval);
+        
+        // Iniciar el juego
+        resetGame();
     </script>
 </body>
 </html>
